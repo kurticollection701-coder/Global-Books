@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Global Books Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f1f5f9;color:#172033}
+header{background:#111827;color:#fff;padding:17px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+header b{font-size:20px}button{border:0;border-radius:9px;padding:11px 14px;font-weight:700;cursor:pointer}.danger{background:#dc2626;color:#fff}.primary{background:#2563eb;color:#fff}
+.wrap{max-width:1000px;margin:18px auto;padding:0 12px}.card{background:#fff;border-radius:14px;padding:18px;margin-bottom:15px;box-shadow:0 4px 18px #00000010}
+input,textarea,select{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px}label{display:block;font-weight:700;margin:10px 0 5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.item{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:9px}.item .grow{flex:1;min-width:180px}.hidden{display:none}.msg{padding:10px;border-radius:8px;background:#ecfdf5;color:#166534;margin:10px 0}.err{background:#fef2f2;color:#991b1b}.small{font-size:13px;color:#64748b}
+</style>
+</head>
+<body>
+<header><b>Global Books — Admin</b><button class="danger" id="logout">Logout</button></header>
+<main class="wrap">
+<div id="msg"></div>
+
+<section class="card">
+<h2>Website Settings</h2>
+<div class="grid">
+<div><label>Website Name</label><input id="website_name"></div>
+<div><label>WhatsApp Number</label><input id="whatsapp_number" placeholder="919xxxxxxxxx"></div>
+<div><label>WhatsApp Button</label><select id="whatsapp_enabled"><option value="true">ON</option><option value="false">OFF</option></select></div>
+<div><label>QR Code Image URL</label><input id="qr_code_url" placeholder="https://.../qr.png"></div>
+</div>
+<label>Payment Note</label><textarea id="payment_note"></textarea>
+<label>WhatsApp Message</label><textarea id="whatsapp_message"></textarea>
+<button class="primary" id="saveSettings">Save Settings</button>
+</section>
+
+<section class="card">
+<h2>Projects & Prices</h2><div id="projects"></div>
+<div class="item"><div class="grid"><input id="newProjectName" placeholder="Project name"><input id="newDays" type="number" placeholder="Days"><input id="newPrice" type="number" placeholder="Price"></div><button class="primary" id="addProject" style="margin-top:9px">Add Project</button></div>
+</section>
+
+<section class="card">
+<h2>Form Fields</h2><div id="fields"></div>
+<div class="item"><div class="grid"><input id="newFieldKey" placeholder="field_key e.g. email"><input id="newFieldLabel" placeholder="Field label"><select id="newFieldType"><option value="text">Text</option><option value="tel">Phone</option><option value="email">Email</option><option value="textarea">Long text</option></select></div><button class="primary" id="addField" style="margin-top:9px">Add Field</button></div>
+</section>
+
+<section class="card">
+<h2>Orders</h2><div id="orders" class="small">Loading...</div>
+</section>
+
+<section class="card">
+<h2>Admin Account</h2>
+<label>New Username</label><input id="newUsername" placeholder="Admin username">
+<button class="primary" id="saveUsername">Change Username</button>
+<label>New Password</label><input id="newPassword" type="password" placeholder="New password">
+<button class="primary" id="savePassword">Change Password</button>
+<p class="small">The Supabase Auth password is never stored in the website database.</p>
+</section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="data.js"></script>
+<script>
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+let settings={};
+
+function message(t,error=false){$("msg").innerHTML=`<div class="msg ${error?"err":""}">${esc(t)}</div>`;setTimeout(()=>{$("msg").innerHTML=""},3500)}
+async function guard(){
+  const {data:{session}}=await db.auth.getSession();
+  if(!session){location.href="login.html";return false}
+  const r=await db.from("admins").select("username").eq("user_id",session.user.id).maybeSingle();
+  if(r.error||!r.data){await db.auth.signOut();location.href="login.html";return false}
+  $("newUsername").value=r.data.username||"";return true;
+}
+async function loadSettings(){
+  const r=await db.from("website_settings").select("*");
+  if(r.error)throw r.error;settings={};(r.data||[]).forEach(x=>settings[x.setting_key]=x.setting_value);
+  ["website_name","whatsapp_number","qr_code_url","payment_note","whatsapp_message"].forEach(k=>$(k).value=settings[k]||"");
+  $("whatsapp_enabled").value=settings.whatsapp_enabled==="true"?"true":"false";
+}
+async function saveSettings(){
+  const keys=["website_name","whatsapp_number","qr_code_url","payment_note","whatsapp_message"];
+  const rows=keys.map(k=>({setting_key:k,setting_value:$(k).value}));
+  rows.push({setting_key:"whatsapp_enabled",setting_value:$("whatsapp_enabled").value});
+  const r=await db.from("website_settings").upsert(rows,{onConflict:"setting_key"});
+  if(r.error)message(r.error.message,true);else message("Website settings saved.");
+}
+async function loadProjects(){
+  const r=await db.from("projects").select("*").order("sort_order");
+  if(r.error)return message(r.error.message,true);
+  $("projects").innerHTML=(r.data||[]).map(p=>`<div class="item">
+  <div class="grid"><input data-name="${p.id}" value="${esc(p.project_name)}"><input data-days="${p.id}" type="number" value="${p.duration_days??""}"><input data-price="${p.id}" type="number" value="${p.price}"></div>
+  <div class="row" style="margin-top:8px"><button class="primary" onclick="updateProject(${p.id})">Save</button><button class="danger" onclick="deleteProject(${p.id})">Delete</button></div></div>`).join("");
+}
+async function updateProject(id){
+  const r=await db.from("projects").update({project_name:document.querySelector(`[data-name="${id}"]`).value,duration_days:Number(document.querySelector(`[data-days="${id}"]`).value)||null,price:Number(document.querySelector(`[data-price="${id}"]`).value)||0}).eq("id",id);
+  if(r.error)message(r.error.message,true);else{message("Project updated.");loadProjects()}
+}
+async function deleteProject(id){if(!confirm("Delete this project?"))return;const r=await db.from("projects").delete().eq("id",id);if(r.error)message(r.error.message,true);else loadProjects()}
+$("addProject").onclick=async()=>{const r=await db.from("projects").insert({project_name:$("newProjectName").value.trim(),duration_days:Number($("newDays").value)||null,price:Number($("newPrice").value)||0,sort_order:99});if(r.error)message(r.error.message,true);else{$("newProjectName").value="";$("newDays").value="";$("newPrice").value="";loadProjects()}};
+
+async function loadFields(){
+ const r=await db.from("form_fields").select("*").order("sort_order");if(r.error)return message(r.error.message,true);
+ $("fields").innerHTML=(r.data||[]).map(f=>`<div class="item"><div class="grid"><input data-flabel="${f.id}" value="${esc(f.field_label)}"><input data-fplaceholder="${f.id}" value="${esc(f.placeholder||"")}"><select data-factive="${f.id}"><option value="true" ${f.is_active?"selected":""}>Visible</option><option value="false" ${!f.is_active?"selected":""}>Hidden</option></select></div><div class="row" style="margin-top:8px"><button class="primary" onclick="updateField(${f.id})">Save</button><button class="danger" onclick="deleteField(${f.id})">Delete</button></div></div>`).join("");
+}
+async function updateField(id){const r=await db.from("form_fields").update({field_label:document.querySelector(`[data-flabel="${id}"]`).value,placeholder:document.querySelector(`[data-fplaceholder="${id}"]`).value,is_active:document.querySelector(`[data-factive="${id}"]`).value==="true"}).eq("id",id);if(r.error)message(r.error.message,true);else{message("Field updated.");loadFields()}}
+async function deleteField(id){if(!confirm("Delete this field?"))return;const r=await db.from("form_fields").delete().eq("id",id);if(r.error)message(r.error.message,true);else loadFields()}
+$("addField").onclick=async()=>{const key=$("newFieldKey").value.trim().toLowerCase().replace(/[^a-z0-9_]/g,"_");const r=await db.from("form_fields").insert({field_key:key,field_label:$("newFieldLabel").value.trim(),field_type:$("newFieldType").value,sort_order:99});if(r.error)message(r.error.message,true);else{loadFields();$("newFieldKey").value="";$("newFieldLabel").value=""}};
+
+async function loadOrders(){const r=await db.from("orders").select("*").order("created_at",{ascending:false}).limit(100);if(r.error){$("orders").textContent=r.error.message;return}$("orders").innerHTML=(r.data||[]).map(o=>`<div class="item"><b>${esc(o.order_number)}</b> — ${esc(o.project_name)} — ₹${o.project_price}<br>Name: ${esc(o.customer_name)} | Mobile: ${esc(o.mobile)}<br>${new Date(o.created_at).toLocaleString()}</div>`).join("")||"No orders yet."}
+$("saveSettings").onclick=saveSettings;
+$("saveUsername").onclick=async()=>{const {data:{user}}=await db.auth.getUser();const r=await db.from("admins").update({username:$("newUsername").value.trim()}).eq("user_id",user.id);if(r.error)message(r.error.message,true);else message("Username changed.")};
+$("savePassword").onclick=async()=>{const p=$("newPassword").value;if(p.length<8)return message("Password must be at least 8 characters.",true);const r=await db.auth.updateUser({password:p});if(r.error)message(r.error.message,true);else{$("newPassword").value="";message("Password changed.")}};
+$("logout").onclick=async()=>{await db.auth.signOut();location.href="login.html"};
+
+async function init(){
+ const ok=await guard();if(!ok)return;
+ await Promise.all([loadSettings(),loadProjects(),loadFields(),loadOrders()]);
+}
+init();
+setInterval(()=>{if(location.search!=="?login=1")loadOrders()},5000);
+</script>
+</body>
+</html>

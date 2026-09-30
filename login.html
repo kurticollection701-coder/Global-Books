@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Global Books Admin Login</title>
+<style>
+body{margin:0;background:#eef2ff;font-family:Arial,sans-serif}.box{max-width:420px;margin:70px auto;padding:24px;background:#fff;border-radius:16px;box-shadow:0 8px 30px #0002}h1{margin-top:0}label{display:block;font-weight:700;margin:14px 0 6px}input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;font-size:16px;box-sizing:border-box}button{width:100%;padding:13px;margin-top:18px;border:0;border-radius:9px;background:#2563eb;color:#fff;font-size:16px;font-weight:700}.err{color:#b91c1c;margin-top:12px}
+</style></head>
+<body><div class="box"><h1>Global Books Admin</h1><p>Secure administrator login</p>
+<label>Username</label><input id="u" autocomplete="username" placeholder="Username">
+<label>Password</label><input id="p" type="password" autocomplete="current-password" placeholder="Password">
+<button id="login">Login</button><div id="msg" class="err"></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="data.js"></script>
+<script>
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY),$=id=>document.getElementById(id);
+$("login").onclick=async()=>{
+ $("msg").textContent="Signing in...";
+ const u=$("u").value.trim(),p=$("p").value;
+ if(!u||!p){$("msg").textContent="Enter username and password.";return}
+ const lookup=await db.rpc("get_admin_email",{p_username:u});
+ if(lookup.error||!lookup.data){$("msg").textContent="Invalid username or password.";return}
+ const r=await db.auth.signInWithPassword({email:lookup.data,password:p});
+ if(r.error){$("msg").textContent="Invalid username or password.";return}
+ location.href="admin.html";
+};
+</script></body></html>

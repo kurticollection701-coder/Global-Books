@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Global Books</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f5f7fb;color:#172033}
+header{background:#111827;color:#fff;padding:22px 16px;text-align:center}header h1{margin:0;font-size:27px}header p{margin:7px 0 0;color:#dbeafe}
+.wrap{max-width:720px;margin:20px auto;padding:0 14px}.card{background:#fff;border-radius:16px;padding:20px;margin-bottom:16px;box-shadow:0 5px 20px #00000012}
+h2{margin-top:0}.projects{display:grid;gap:10px}.project{border:2px solid #e5e7eb;border-radius:13px;padding:14px;cursor:pointer}.project.selected{border-color:#2563eb;background:#eff6ff}
+.project b{display:block;font-size:17px}.project span{font-size:20px;font-weight:700}.project small{color:#64748b}
+label{display:block;font-weight:700;margin:13px 0 6px}input,textarea,select{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:10px;font-size:16px}textarea{min-height:90px;resize:vertical}
+button{border:0;border-radius:11px;padding:13px 16px;font-size:16px;font-weight:700;cursor:pointer}.primary{background:#2563eb;color:#fff;width:100%;margin-top:16px}.wa{background:#16a34a;color:#fff;width:100%;margin-top:12px}.muted{color:#64748b}.hidden{display:none}.qr{text-align:center}.qr img{max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb}.note{background:#fff7ed;padding:13px;border-radius:10px;color:#9a3412;white-space:pre-wrap}
+.error{color:#b91c1c;margin-top:10px}.success{color:#15803d;margin-top:10px}.footer{text-align:center;color:#64748b;padding:25px}
+</style>
+</head>
+<body>
+<header><h1 id="siteName">Global Books</h1><p>Writing & Home Job Platform</p></header>
+<main class="wrap">
+<section class="card" id="formCard">
+<h2>Fill Out This Form to Order</h2>
+<div id="projectList" class="projects"></div>
+<div id="fields"></div>
+<div id="paymentNote" class="note hidden"></div>
+<button class="primary" id="continueBtn">Continue</button>
+<div id="formMsg"></div>
+</section>
+
+<section class="card hidden" id="paymentCard">
+<h2>📦 Order Confirmation</h2>
+<div id="orderSummary"></div>
+<div id="qrBox" class="qr hidden"></div>
+<div id="paymentText" class="note hidden"></div>
+<button id="waBtn" class="wa hidden">Message on WhatsApp</button>
+</section>
+</main>
+<div class="footer">© <span id="year"></span> <span id="footerName">Global Books</span></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="data.js"></script>
+<script>
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let projects=[], fields=[], settings={}, selectedProject=null, currentOrder=null;
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+
+async function loadAll(){
+  const [s,p,f]=await Promise.all([
+    db.from("website_settings").select("*"),
+    db.from("projects").select("*").eq("is_active",true).order("sort_order"),
+    db.from("form_fields").select("*").eq("is_active",true).order("sort_order")
+  ]);
+  if(s.error||p.error||f.error){$("formMsg").innerHTML='<div class="error">Unable to load the form. Please try again.</div>';return}
+  settings={}; (s.data||[]).forEach(x=>settings[x.setting_key]=x.setting_value);
+  projects=p.data||[]; fields=f.data||[];
+  render();
+}
+function render(){
+  const name=settings.website_name||"Global Books";
+  $("siteName").textContent=name;$("footerName").textContent=name;$("year").textContent=new Date().getFullYear();
+  $("projectList").innerHTML=projects.map(p=>`<div class="project ${selectedProject?.id===p.id?"selected":""}" data-id="${p.id}">
+    <b>${esc(p.project_name)}</b><small>${p.duration_days?esc(p.duration_days)+" day project":"Project"}</small>
+    <span>₹${Number(p.price).toLocaleString("en-IN")}</span>
+  </div>`).join("");
+  document.querySelectorAll(".project").forEach(el=>el.onclick=()=>{selectedProject=projects.find(p=>String(p.id)===el.dataset.id);render()});
+  $("fields").innerHTML=fields.map(f=>{
+    const tag=f.field_type==="textarea"?"textarea":`input type="${esc(f.field_type||"text")}"`;
+    return `<label>${esc(f.field_label)}${f.is_required?" *":""}</label>
+      ${tag.startsWith("<")?tag:`<${tag}`} name="${esc(f.field_key)}" placeholder="${esc(f.placeholder||"")}" ${f.is_required?"required":""}></${f.field_type==="textarea"?"textarea":"input"}>`;
+  }).join("");
+  const note=settings.payment_note||"";
+  $("paymentNote").textContent=note;$("paymentNote").classList.toggle("hidden",!note);
+}
+$("continueBtn").onclick=async()=>{
+  $("formMsg").innerHTML="";
+  if(!selectedProject){$("formMsg").innerHTML='<div class="error">Please select a project.</div>';return}
+  const data={};
+  for(const f of fields){
+    const el=document.querySelector(`[name="${CSS.escape(f.field_key)}"]`);
+    if(f.is_required&&!el?.value.trim()){el?.focus();$("formMsg").innerHTML='<div class="error">Please fill all required fields.</div>';return}
+    data[f.field_key]=el?.value.trim()||"";
+  }
+  const row={
+    project_id:selectedProject.id,project_name:selectedProject.project_name,project_price:selectedProject.price,
+    customer_name:data.name||"",address:data.address||"",landmark:data.landmark||"",city:data.city||"",
+    state:data.state||"",pincode:data.pincode||"",mobile:data.mobile||"",extra_details:data
+  };
+  $("continueBtn").disabled=true;$("continueBtn").textContent="Saving...";
+  const r=await db.from("orders").insert(row).select().single();
+  $("continueBtn").disabled=false;$("continueBtn").textContent="Continue";
+  if(r.error){$("formMsg").innerHTML='<div class="error">Could not create the order. Please try again.</div>';return}
+  currentOrder=r.data;
+  $("formCard").classList.add("hidden");$("paymentCard").classList.remove("hidden");
+  renderPayment();
+};
+function renderPayment(){
+  const s=settings,p=currentOrder;
+  $("orderSummary").innerHTML=`<p><b>Order:</b> ${esc(p.order_number)}</p><p><b>Project:</b> ${esc(p.project_name)}</p><p><b>Amount:</b> ₹${Number(p.project_price).toLocaleString("en-IN")}</p>`;
+  const qr=s.qr_code_url||"";
+  $("qrBox").innerHTML=qr?`<p><b>Scan QR to Pay</b></p><img src="${esc(qr)}" alt="Payment QR code">`:"";
+  $("qrBox").classList.toggle("hidden",!qr);
+  const note=s.payment_note||"";$("paymentText").textContent=note;$("paymentText").classList.toggle("hidden",!note);
+  const enabled=s.whatsapp_enabled==="true" && !!s.whatsapp_number;
+  $("waBtn").classList.toggle("hidden",!enabled);
+  if(enabled)$("waBtn").onclick=()=>{
+    const msg=(s.whatsapp_message||"Hello Global Books, I want to confirm my order.")
+      +"\n\nOrder No: "+p.order_number+"\nProject: "+p.project_name+"\nAmount: ₹"+p.project_price
+      +"\nName: "+(p.customer_name||"")+"\nMobile: "+(p.mobile||"");
+    window.open("https://wa.me/"+s.whatsapp_number.replace(/\D/g,"")+"?text="+encodeURIComponent(msg),"_blank");
+  };
+}
+async function refresh(){await loadAll()}
+setInterval(refresh,3000);
+loadAll();
+</script>
+</body>
+</html>
